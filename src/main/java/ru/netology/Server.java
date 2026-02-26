@@ -10,16 +10,21 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class Server {
-    static final List<String> validPaths = List.of("/index.html", "/spring.svg", "/spring.png", "/resources.html", "/styles.css", "/app.js", "/links.html", "/forms.html", "/classic.html", "/events.html", "/events.js");
-    static final String staticDir = Path.of("src", "main", "resources", "static").toString();
+    final List<String> validPaths = List.of("/index.html", "/spring.svg", "/spring.png", "/resources.html", "/styles.css", "/app.js", "/links.html", "/forms.html", "/classic.html", "/events.html", "/events.js");
+    final String staticDir = Path.of("src", "main", "resources", "static").toString();
+    final ExecutorService executor = Executors.newFixedThreadPool(64);
 
     public void listen(int port) {
         try (ServerSocket serverSocket = new ServerSocket(port)) {
-            while (true) {
-                handle(serverSocket.accept());
+            while (!Thread.currentThread().isInterrupted()) {
+                Socket socket = serverSocket.accept();
+                executor.submit(() -> { handle(socket); });
             }
+            executor.shutdown();
         } catch (IOException e) {
             e.printStackTrace();
         }
