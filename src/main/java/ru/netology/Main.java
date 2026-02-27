@@ -34,10 +34,11 @@ public class Main {
               }
         });
 
-        server.addHandler(
-            "GET", "/forms.html", (Request request, BufferedOutputStream responseStream) -> {
+        final var formHandler = new Handler() {
+            @Override
+            public void handle(Request request, BufferedOutputStream responseStream) {
                 try {
-                    final var filePath = Path.of(".", "src/main/resources/static/forms.html");
+                    final var filePath = Path.of(staticPath, "default-get.html");
                     final var mimeType = Files.probeContentType(filePath);
                     final var length = Files.size(filePath);
 
@@ -52,7 +53,11 @@ public class Main {
                 } catch (IOException e) {
                     System.err.println("Ошибка при обработке запроса: " + e.getMessage());
                 }
-            });
+            }
+        };
+
+        server.addHandler("GET", "/default-get.html", formHandler);
+        server.addHandler("POST", "/", formHandler);
 
         server.listen(9999);
     }

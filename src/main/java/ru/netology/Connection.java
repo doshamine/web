@@ -7,15 +7,15 @@ import java.net.URI;
 
 import java.net.Socket;
 import java.net.URISyntaxException;
-import java.util.Arrays;
-import java.util.Map;
-import java.util.Optional;
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
+import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class Connection implements Runnable {
-    public static final String paramRegex = "([^?&\\n\\t\\s]+)=([^&\\n\\t\\s]+)";
-    public static final String headerRegex = "([\\w-]+): (.*)";
+    private static final Pattern paramPattern = Pattern.compile("([^?&\\n\\t\\s]+)=([^&\\n\\t\\s]+)");
+    public static final Pattern headerPattern = Pattern.compile("([\\w-]+): (.*)");
 
     public static final int limit = 4096;
     public static final byte[] delimiter = "\r\n".getBytes();
@@ -71,14 +71,7 @@ public class Connection implements Runnable {
             Handler handler = handlersMap.get(endpoint);
 
             if (query != null) {
-                Pattern paramPattern = Pattern.compile(paramRegex);
-                Matcher paramMatcher = paramPattern.matcher(query);
-
-                while (paramMatcher.find()) {
-                    String key = paramMatcher.group(1);
-                    String value = paramMatcher.group(2);
-                    requestBuilder.param(key, value);
-                }
+                setQueryParams(query, requestBuilder);
             }
 
             final var headersStart = requestLineEnd + delimiter.length;
@@ -88,30 +81,22 @@ public class Connection implements Runnable {
                 return;
             }
 
-            in.reset();
-            in.skip(headersStart);
-            final var headersBytes = in.readNBytes(headersEnd - headersStart);
-            final var headers = new String(headersBytes).split(new String(delimiter));
-            Pattern headerPattern = Pattern.compile(headerRegex);
+            final var headers = getHeaders(in, headersStart, headersEnd);
 
-            for (String header : headers) {
-                Matcher headerMatcher = headerPattern.matcher(header);
-
-                if (!headerMatcher.find()) {
-                    break;
-                }
-
-                String key = headerMatcher.group(1);
-                String value = headerMatcher.group(2);
-                requestBuilder.header(key, value);
-            }
-
+            setHeaders(headers, requestBuilder);
             in.skip(doubleDelimiter.length);
+
             final var contentLength = extractHeader(headers, "Content-Length");
             if (contentLength.isPresent()) {
-                final var bodyLength = Integer.parseInt(contentLength.get());
-                final var bodyBytes = in.readNBytes(bodyLength);
-                requestBuilder.body(new String(bodyBytes));
+                final var contentType = extractHeader(headers, "Content-Type");
+                String body = getBody(in, Integer.parseInt(contentLength.get()));
+
+                if (contentType.isPresent()) {
+                    if (contentType.get().contains("x-www-form-urlencoded")) {
+                        setPostParams(body, requestBuilder);
+                    }
+                }
+                requestBuilder.body(body);
             }
 
             Request request = requestBuilder.build();
@@ -121,6 +106,53 @@ public class Connection implements Runnable {
         } catch (URISyntaxException e) {
             System.err.println("Неверный URI: " + e.getMessage());
         }
+    }
+
+    private void setPostParams(String body, Request.Builder requestBuilder) {
+        String postParams = URLDecoder.decode(body, StandardCharsets.UTF_8);
+        Matcher paramMatcher = paramPattern.matcher(postParams);
+
+        while (paramMatcher.find()) {
+            String key = paramMatcher.group(1);
+            String value = paramMatcher.group(2);
+            requestBuilder.postParam(key, value);
+        }
+    }
+
+    private void setHeaders(String[] headers, Request.Builder requestBuilder) {
+        for (String header : headers) {
+            Matcher headerMatcher = headerPattern.matcher(header);
+
+            if (!headerMatcher.find()) {
+                break;
+            }
+
+            String key = headerMatcher.group(1);
+            String value = headerMatcher.group(2);
+            requestBuilder.header(key, value);
+        }
+    }
+
+    private void setQueryParams(String query, Request.Builder requestBuilder) {
+        Matcher paramMatcher = paramPattern.matcher(query);
+
+        while (paramMatcher.find()) {
+            String key = paramMatcher.group(1);
+            String value = paramMatcher.group(2);
+            requestBuilder.queryParam(key, value);
+        }
+    }
+
+    private String[] getHeaders(BufferedInputStream in, int headersStart, int headersEnd) throws IOException {
+        in.reset();
+        in.skip(headersStart);
+        final var headersBytes = in.readNBytes(headersEnd - headersStart);
+        return new String(headersBytes).split(new String(delimiter));
+    }
+
+    private String getBody(BufferedInputStream in, int bodyLength) throws IOException {
+        final var bodyBytes = in.readNBytes(bodyLength);
+        return new String(bodyBytes);
     }
 
     private Optional<String> extractHeader(String[] headers, String header) {
