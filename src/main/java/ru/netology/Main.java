@@ -6,7 +6,7 @@ import java.nio.file.Path;
 import java.time.LocalDateTime;
 
 public class Main {
-    static final String staticPath = Path.of("src", "main", "resources", "static").toString();
+    private static final String staticPath = Path.of("src", "main", "resources", "static").toString();
 
     public static void main(String[] args) {
         final var server = new Server();
