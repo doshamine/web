@@ -7,6 +7,7 @@ import java.util.Map;
 
 public class Response {
     public static final String CRLF = "\r\n";
+    private final String httpVersion = "HTTP/1.1";
     private final int status;
     private final String message;
     private final Map<String, String> headers;
@@ -21,7 +22,9 @@ public class Response {
 
     public void send(BufferedOutputStream out) throws IOException {
         StringBuilder builder = new StringBuilder();
-        builder.append("HTTP/1.1 ").append(status).append(" ").append(message).append(CRLF);
+        builder.append(httpVersion).append(" ")
+            .append(status).append(" ")
+            .append(message).append(CRLF);
         for (Map.Entry<String, String> entry : headers.entrySet()) {
             builder.append(entry.getKey()).append(": ").append(entry.getValue()).append(CRLF);
         }

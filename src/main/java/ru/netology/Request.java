@@ -10,8 +10,9 @@ public class Request {
     private final String path;
     private final Map<String, String> headers;
     private final Map<String, String> queryParams;
-    private final String body;
+    private final byte[] body;
     private final Map<String, List<String>> postParams;
+    private final Map<String, List<String>> parts;
 
     public Request(Builder builder) {
         this.method = builder.method;
@@ -20,6 +21,7 @@ public class Request {
         this.queryParams = builder.queryParams;
         this.body = builder.body;
         this.postParams = builder.postParams;
+        this.parts = builder.parts;
     }
 
     public Map<String, String> getHeaders() {
@@ -44,16 +46,24 @@ public class Request {
 
     public String getPath() { return path; }
 
-    public String getBody() {
+    public byte[] getBody() {
         return body;
     }
 
-    public List<String> getPostParam(String name) {
-        return postParams.get(name);
+    public Map<String, List<String>> getParts() {
+        return parts;
+    }
+
+    public List<String> getPart(String name) {
+        return parts.get(name);
     }
 
     public Map<String, List<String>> getPostParams() {
         return postParams;
+    }
+
+    public List<String> getPostParam(String name) {
+        return postParams.get(name);
     }
 
     public static class Builder {
@@ -61,8 +71,9 @@ public class Request {
         private String path;
         private final Map<String, String> headers = new HashMap<>();
         private final Map<String, String> queryParams =  new HashMap<>();
-        private String body;
+        private byte[] body;
         private final Map<String, List<String>> postParams = new HashMap<>();
+        private final Map<String, List<String>> parts = new HashMap<>();
 
         public Builder method(String method) {
             this.method = method;
@@ -84,7 +95,7 @@ public class Request {
             return this;
         }
 
-        public Builder body(String body) {
+        public Builder body(byte[] body) {
             this.body = body;
             return this;
         }
@@ -94,6 +105,14 @@ public class Request {
                 postParams.put(name, new LinkedList<>());
             }
             postParams.get(name).add(value);
+            return this;
+        }
+
+        public Builder part(String name, String value) {
+            if (!parts.containsKey(name)) {
+                parts.put(name, new LinkedList<>());
+            }
+            this.parts.get(name).add(value);
             return this;
         }
 

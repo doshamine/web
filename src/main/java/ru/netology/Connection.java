@@ -1,5 +1,6 @@
 package ru.netology;
 
+import org.apache.commons.fileupload2.core.*;
 import org.apache.http.client.utils.URIBuilder;
 
 import java.io.*;
@@ -9,21 +10,26 @@ import java.net.Socket;
 import java.net.URISyntaxException;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class Connection implements Runnable {
+    private static final String uploadDir = Path.of("src", "main", "resources", "upload").toString();
+
     private static final Pattern paramPattern = Pattern.compile("([^?&\\n\\t\\s]+)=([^&\\n\\t\\s]+)");
     public static final Pattern headerPattern = Pattern.compile("([\\w-]+): (.*)");
+    public static final Pattern namePattern = Pattern.compile("(?<= name=)\"(.*?)\"");
+    public static final Pattern filenamePattern = Pattern.compile("(?<= filename=)\"(.*?)\"");
 
     public static final int limit = 4096;
+    private final byte[] buffer = new byte[limit];
     public static final byte[] delimiter = "\r\n".getBytes();
     public static final byte[] doubleDelimiter = "\r\n\r\n".getBytes();
 
     private final Socket socket;
     private final Map<Endpoint, Handler> handlersMap;
-    private final byte[] buffer = new byte[limit];
 
     public Connection(Socket socket, Map<Endpoint, Handler> handlersMap) {
         this.socket = socket;
@@ -88,15 +94,18 @@ public class Connection implements Runnable {
 
             final var contentLength = extractHeader(headers, "Content-Length");
             if (contentLength.isPresent()) {
-                final var contentType = extractHeader(headers, "Content-Type");
-                String body = getBody(in, Integer.parseInt(contentLength.get()));
+                final var bodyBytes = in.readNBytes(Integer.parseInt(contentLength.get()));
+                requestBuilder.body(bodyBytes);
 
+                final var contentType = extractHeader(headers, "Content-Type");
                 if (contentType.isPresent()) {
                     if (contentType.get().contains("x-www-form-urlencoded")) {
-                        setPostParams(body, requestBuilder);
+                        setPostParams(new String(bodyBytes), requestBuilder);
+                    } else if (contentType.get().contains("multipart/form-data")) {
+                        final var boundary = contentType.get().split("boundary=")[1];
+                        setParts(bodyBytes, boundary, requestBuilder);
                     }
                 }
-                requestBuilder.body(body);
             }
 
             Request request = requestBuilder.build();
@@ -105,6 +114,40 @@ public class Connection implements Runnable {
             System.err.println("Ошибка обработки запроса: " + e.getMessage());
         } catch (URISyntaxException e) {
             System.err.println("Неверный URI: " + e.getMessage());
+        }
+    }
+
+    private void setParts(byte[] body, String boundary, Request.Builder requestBuilder) throws IOException {
+        MultipartInput multipartInput = MultipartInput.builder()
+            .setBoundary(boundary.getBytes())
+            .setInputStream(new ByteArrayInputStream(body))
+            .get();
+
+        boolean nextPart = multipartInput.skipPreamble();
+        while (nextPart) {
+            String headers = multipartInput.readHeaders();
+            Matcher nameMatcher = namePattern.matcher(headers);
+            if (!nameMatcher.find()) {
+                continue;
+            }
+            String name = nameMatcher.group(1);
+
+            Matcher filenameMatcher = filenamePattern.matcher(headers);
+            if (filenameMatcher.find()) {
+                String filename = filenameMatcher.group(1);
+                if (!filename.isEmpty()) {
+                    requestBuilder.part(name, filename);
+                    try (FileOutputStream outputStream = new FileOutputStream(Path.of(uploadDir, filename).toString())) {
+                        multipartInput.readBodyData(outputStream);
+                    }
+                }
+            } else {
+                ByteArrayOutputStream output = new ByteArrayOutputStream();
+                multipartInput.readBodyData(output);
+                requestBuilder.part(name, output.toString());
+            }
+
+            nextPart = multipartInput.readBoundary();
         }
     }
 
@@ -148,11 +191,6 @@ public class Connection implements Runnable {
         in.skip(headersStart);
         final var headersBytes = in.readNBytes(headersEnd - headersStart);
         return new String(headersBytes).split(new String(delimiter));
-    }
-
-    private String getBody(BufferedInputStream in, int bodyLength) throws IOException {
-        final var bodyBytes = in.readNBytes(bodyLength);
-        return new String(bodyBytes);
     }
 
     private Optional<String> extractHeader(String[] headers, String header) {
