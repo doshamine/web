@@ -1,0 +1,6 @@
+@baseUrl = http://localhost:9999
+
+GET {{baseUrl}}/classic.html?логины=логины&пароли=пароли
+Content-Type: text/plain
+
+Текст
